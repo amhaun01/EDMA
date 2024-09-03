@@ -107,6 +107,7 @@ class mapdata:
 #start off with previously collected data
     def loadMapData(self):
         if len(self.currentBody)>0:
+            self.set_datafilename()
             if os.path.isfile(self.savename):
                 with open(self.savename,'r') as f:
                     print('loading saved map data for ' + self.currentBody)
@@ -128,6 +129,7 @@ class mapdata:
     
     def saveMapData(self):
         #de numpyfy data for jsonification
+        self.set_datafilename()
         v_poslist = [pos.tolist() for pos in self.poslist]
         v_samposlist = [[pos[0].tolist(),pos[1],pos[2]] for pos in self.POIlist]
 
