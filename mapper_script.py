@@ -85,6 +85,7 @@ while(True):
         
         mdata.add_position()
         display.drawpois(mdata)
+        display.drawinfo(mdata)
 
     selfxys = [[-5,5],
                [5,5],

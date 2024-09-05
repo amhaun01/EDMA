@@ -73,7 +73,7 @@ class mapdata:
 
     def set_heading(self,heading):
         self.heading = str(heading)
-        self.h_rad = np.pi*heading/180
+        self.h_rad = np.pi*float(heading)/180
 
     def pos_change(self):#formerly dmoved
         return chordlength(self.refpos[1], self.refpos[0], self.curpos[1], self.curpos[0], self.radius)
@@ -94,6 +94,9 @@ class mapdata:
             if POItype==2:
                 self.cBsamples[POIname]+=1
         else:
+            if POItype==2:
+                self.cBsamples[POIname]=1
+            else:
                 self.cBsamples[POIname]=0
 
     def add_POI(self,POIname,POItype=0):
@@ -119,7 +122,7 @@ class mapdata:
                     self.POIlist = [[np.array(pos[0]),pos[1],pos[2]] for pos in mapdict["POIlist"]]
 
                     for POI in self.POIlist:
-                        self.add_cBsample(POI[1],0)
+                        self.add_cBsample(POI[1],POI[2])
                     self.set_radius(mapdict["radius"])
                     self.set_curpos(self.poslist[-1])
                     self.set_heading(mapdict["heading"])
@@ -239,11 +242,20 @@ class display:
             pygame.draw.circle(self.screen,center=tpos,width=1,radius=3,color=(127,127,64))
             self.draw_text('TD', self.text_font, (255,255,200), tpos[0],tpos[1])
         
+    def drawinfo(self,mdata):
+        #body & position stuff, upper-right corner
         lat,long = mdata.curpos
         llstring = 'Lat/Long:' + str(np.round(lat,4)) + '/' + str(np.round(long,4))
         self.draw_text(mdata.currentBody, self.text_font, text_col=(255,255,150),x=10,y=10)
         self.draw_text(llstring, self.text_font, text_col=(255,255,150),x=10,y=24)
         self.draw_text('Heading:' + mdata.heading, self.text_font, text_col=(255,255,150),x=10,y=38)
+
+        #collected POI info
+        yv = 10
+        for key in mdata.cBsamples:
+            POIlabel = key + '/' + str(mdata.cBsamples[key])
+            self.draw_text(POIlabel, self.text_font, text_col=(255,255,150),x=self.s - 60,y=yv)
+            yv = yv+14
 
 ##############
 def getstatus(fname):
