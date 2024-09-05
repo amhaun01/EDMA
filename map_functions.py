@@ -58,6 +58,7 @@ class mapdata:
         self.radius = 0#radius in meters of current body
         self.lastLine = ''#this should really go somewhere else
         self.dataLoaded = False
+        self.distance = 0
     
     def set_datafilename(self):
         self.savename = mapdatpath + self.currentBody + '_data.json'
@@ -82,12 +83,15 @@ class mapdata:
         return latlong2meter(self.curpos, self.refpos, self.radius)
 
     def add_position(self):
-        if self.pos_change()>0:
+        d = self.pos_change()
+        self.distance+=d
+        if d>0:
             if len(self.poslist)==0:
                 self.poslist.append(self.curpos)
             else:
                 if not np.array_equal(self.poslist[-1],self.curpos):
                     self.poslist.append(self.curpos)
+            self.set_refpos(self.curpos)
 
     def add_cBsample(self,POIname,POItype):
         if POIname in self.cBsamples:
@@ -105,7 +109,8 @@ class mapdata:
             POItype = 0
             POIname = s_n_split[-1]
         self.POIlist.append([self.curpos,POIname[0:3],POItype])
-        self.add_cBsample(POIname[0:3],POItype)
+        if POIname not in ["X"]:
+            self.add_cBsample(POIname[0:3],POItype)
     
 #start off with previously collected data
     def loadMapData(self):
@@ -245,16 +250,18 @@ class display:
     def drawinfo(self,mdata):
         #body & position stuff, upper-right corner
         lat,long = mdata.curpos
-        llstring = 'Lat/Long:' + str(np.round(lat,4)) + '/' + str(np.round(long,4))
-        self.draw_text(mdata.currentBody, self.text_font, text_col=(255,255,150),x=10,y=10)
-        self.draw_text(llstring, self.text_font, text_col=(255,255,150),x=10,y=24)
-        self.draw_text('Heading:' + mdata.heading, self.text_font, text_col=(255,255,150),x=10,y=38)
+        llstring =    'Lat/Long:  ' + str(np.round(lat,3)) + '/' + str(np.round(long,3))
+        self.draw_text(mdata.currentBody, self.text_font, text_col=(250,250,150),x=10,y=10)
+        self.draw_text(llstring, self.text_font, text_col=(250,250,150),x=10,y=24)
+        self.draw_text('Heading:  ' + mdata.heading, self.text_font, text_col=(250,250,150),x=10,y=38)
+        self.draw_text('Distance: ' + str(round(mdata.distance)/1000) + 'km', self.text_font, text_col=(255,245,145),x=10,y=52)
 
         #collected POI info
         yv = 10
         for key in mdata.cBsamples:
+            poicolor = poicolors[list(mdata.cBsamples.keys()).index(key)]
             POIlabel = key + '/' + str(mdata.cBsamples[key])
-            self.draw_text(POIlabel, self.text_font, text_col=(255,255,150),x=self.s - 60,y=yv)
+            self.draw_text(POIlabel, self.text_font, text_col=poicolor,x=self.s - 60,y=yv)
             yv = yv+14
 
 ##############
@@ -292,15 +299,16 @@ def checkforevent(latest_logfile, mapdata, display):
                     POItype = 2
             if len(mapdata.refpos)>0 and POItype>0:
                 mapdata.add_POI(sample_name,POItype=POItype)
-        #if eventline["event"]=="Touchdown":
-            #mapdata.td_pos = [np.array([eventline['Latitude'],eventline['Longitude']])]
-            #tdpos = [latlong2meter(td_pos, mapdata.refpos, mapdata.radius)]
+        if eventline["event"]=="Touchdown":
+            mapdata.td_pos = [np.array([eventline['Latitude'],eventline['Longitude']])]
         if eventline["event"]=="Liftoff":
+            mapdata.td_pos = []
             if display.ppm>0.5:
-                display.ppm = .05
-        if "MusicTrack" in eventline:
-            if eventline["MusicTrack"]=="OnFoot":
-                display.ppm = .889
+                display.ppm = .05                
+        if eventline["event"]=="FSSDiscoveryScan":
+            mapdata.add_POI("X",POItype=0)
+        if "Disembark" in eventline:
+            display.ppm = .889
         if "Body" in eventline and len(mapdata.currentBody)==0:
             mapdata.currentBody = eventline["Body"]
         if "StartJump" in eventline:
