@@ -9,44 +9,16 @@ import map_functions as mf
 ########################################################
 ########################################################
 ########################################################
-
 display = mf.display()
 mdata = mf.mapdata()
 
-#from an example found at https://www.youtube.com/watch?v=ndtFoWWBAoE
-
-eventline = []
-bloop = False
-
-fname = 'C:/Users/amhau/Saved Games/Frontier Developments/Elite Dangerous/Status.json'
-
-for cmdr in ['amhau']:
-    fpath = 'C:/Users/' + cmdr + '/Saved Games/Frontier Developments/Elite Dangerous/'
-
-    flist = list(filter(os.path.isfile,
-                    glob.glob(fpath + '*.log')))
-
-# import time
-
-latest_logfile = max(flist, key=os.path.getctime)
-##get name of current body, also get the last line of the current log file
-mdata.lastLine = None
-with open(latest_logfile,'r') as f:
-    lines = f.readlines()
-for line in reversed(lines):
-    if mdata.lastLine==None:
-        mdata.lastLine=line
-
-    eventline = json.loads(line)
-    if "event" in eventline:
-        if "Body" in eventline:
-            mdata.currentBody = eventline["Body"]
-    if len(mdata.currentBody)>0:
-        break
+#fetch the most recent log file
+mf.get_latest_logfile(mdata)
 
 #start off with previously collected data
 mdata.loadMapData()
 
+bloop = False
 while(True):
     #getting user inputs
     for event in pygame.event.get():
@@ -57,26 +29,29 @@ while(True):
             pygame.quit()
             bloop = True
             #raise SystemExit
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
+        #elif event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
+        elif event.type == pygame.MOUSEWHEEL and event.y == 1:
             #zoom in by increasing ppm (const)
             display.increment_ppm()
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
+        #elif event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
+        elif event.type == pygame.MOUSEWHEEL and event.y == -1:
             #zoom out by decreasing ppm (const)
             display.decrement_ppm()
             #raise SystemExit
     if bloop:
         break
-
+    
     display.drawgrid()
     if not mdata.dataLoaded:
         mdata.loadMapData()
 
-    #this code is for detecting journal events and adding to the set of POIs to be displayed
-    mf.checkforevent(latest_logfile, mdata, display)
-    #reading the status file
-    d = mf.getstatus(fname)
     
-    if "Latitude" in d:
+    #this code is for detecting journal events and adding to the set of POIs to be displayed
+    mf.checkforevent(mdata, display)
+    #reading the status file
+    d = mf.getstatus(mdata.EDpath+'status.json')
+    
+    if "Latitude" in d:#are we in landing range of a planet (OSC or lower)?
         mdata.set_radius(d['PlanetRadius'])
         mdata.set_curpos([d['Latitude'],d['Longitude']])
         mdata.set_heading(d['Heading'])
@@ -100,6 +75,6 @@ while(True):
                rotxys[2]+display.centpos)
     pygame.draw.polygon(surface=display.screen,points=selfsym,color=(255,255,200),width=2)
     pygame.display.flip()
-    time.sleep(2)
+    time.sleep(.1)
 
 mdata.saveMapData()

@@ -4,6 +4,7 @@ import time
 import pygame
 import numpy as np
 import os
+import glob
 #######################################################################
 ###################################################################
 ###################################################################
@@ -46,7 +47,7 @@ poicolors = [(127,127,0),
               (0,64,127)]
 
 class mapdata:
-    def __init__(self,currentBody=''):
+    def __init__(self,EDpath='',currentBody=''):
         self.currentBody = currentBody
         self.cBsamples = {}
         self.curpos = np.array([])#current position in lat/long
@@ -59,6 +60,13 @@ class mapdata:
         self.lastLine = ''#this should really go somewhere else
         self.dataLoaded = False
         self.distance = 0
+        self.nlines = 0
+        self.heading = ''
+
+        if len(EDpath)==0:
+            self.EDpath = os.path.expanduser('~/Saved Games/Frontier Developments/Elite Dangerous/')
+        else:
+            self.EDpath = EDpath
     
     def set_datafilename(self):
         self.savename = mapdatpath + self.currentBody + '_data.json'
@@ -109,7 +117,7 @@ class mapdata:
             POItype = 0
             POIname = s_n_split[-1]
         self.POIlist.append([self.curpos,POIname[0:3],POItype])
-        if POIname not in ["X"]:
+        if POIname != "X":
             self.add_cBsample(POIname[0:3],POItype)
     
 #start off with previously collected data
@@ -204,6 +212,7 @@ class display:
 
             vs = np.arange(period,self.s/2,period)
             rc = 0
+            self.vmax = vs[-1]*self.ppm#in pixels, the outer boundary of the map
             for v in vs:#draw equidistance lines
                 rc+=gridres
                 if gridres<1000:
@@ -234,7 +243,10 @@ class display:
         for poslab in mdata.POIlist:
             ppos = self.screen_pos(poslab[0],mdata)#the coordinate of something scanned
             lab = poslab[1]#the name/label of something scanned
-            poicolor = poicolors[list(mdata.cBsamples.keys()).index(lab)]
+            if lab=="X":
+                poicolor = (127,127,0)
+            else:
+                poicolor = poicolors[list(mdata.cBsamples.keys()).index(lab)]
             if lab in ranges:
                 poirad = self.ppm*ranges[lab]
             else:
@@ -265,54 +277,83 @@ class display:
             yv = yv+14
 
 ##############
-def getstatus(fname):
+def getstatus(status_file):
     #reading the status file
-    f = open(fname,'r',encoding='utf8')
+    f = open(status_file,'r',encoding='utf8')
     statuslines = []
     while len(statuslines)==0:
         statuslines = f.readlines()
     return json.loads(statuslines[0])
 
-def checkforevent(latest_logfile, mapdata, display):
-    with open(latest_logfile,'r') as f:
+def get_latest_logfile(mdata):
+    flist = list(filter(os.path.isfile,
+                glob.glob(mdata.EDpath + '*.log')))
+
+    # import time
+
+    mdata.latest_logfile = max(flist, key=os.path.getctime)
+    ##get name of current body, also get the last line of the current log file
+    mdata.lastLine = None
+    with open(mdata.latest_logfile,'r') as f:
         lines = f.readlines()
-        
+    for line in reversed(lines):
+        if mdata.lastLine==None:
+            mdata.lastLine=line
+
+        eventline = json.loads(line)
+        if "event" in eventline:
+            if "Body" in eventline:
+                mdata.currentBody = eventline["Body"]
+        if len(mdata.currentBody)>0:
+            break
+
+def checkforevent(mapdata, display):
+    with open(mapdata.latest_logfile,'r') as f:
+        lines = f.readlines()
+        nlines = len(lines)
+        ldif = min(nlines - mapdata.nlines,3)
+        mapdata.nlines = nlines
+    
     eventline = []
-    if lines[-1] != mapdata.lastLine:
-        mapdata.lastLine = lines[-1]
-        #print(lines[-1])
-        eventline = json.loads(mapdata.lastLine)
-    if "event" in eventline:
-        print(eventline["event"])
-        if eventline["event"] in ["CodexEntry","ScanOrganic"]:
-            POItype = 0
-            if eventline["event"]=="CodexEntry":
-                sample_name = eventline['Name_Localised']
-                POItype = 1
-                s_n_split = sample_name.split()
-            if eventline["event"]=="ScanOrganic":
-                if eventline["ScanType"]=="Analyse":
-                    print("SampleAnalysed")
-                    POItype = -1
-                else:
-                    sample_name = eventline['Species_Localised']
-                    POItype = 2
-            if len(mapdata.refpos)>0 and POItype>0:
-                mapdata.add_POI(sample_name,POItype=POItype)
-        if eventline["event"]=="Touchdown":
-            mapdata.td_pos = [np.array([eventline['Latitude'],eventline['Longitude']])]
-        if eventline["event"]=="Liftoff":
-            mapdata.td_pos = []
-            if display.ppm>0.5:
-                display.ppm = .05                
-        if eventline["event"]=="FSSDiscoveryScan":
-            mapdata.add_POI("X",POItype=0)
-        if "Disembark" in eventline:
-            display.ppm = .889
-        if "Body" in eventline and len(mapdata.currentBody)==0:
-            mapdata.currentBody = eventline["Body"]
-        if "StartJump" in eventline:
-            mapdata.saveMapData()
+    for line in [lines[x] for x in list(range(-ldif,0))]:#sometimes new lines might come out faster 
+                                                #thanm the main loop would catch, 
+                                                #and we just get the last one. This is a neutered fix
+                                                #since the fix didn't work.
+        if line != mapdata.lastLine:
+            mapdata.lastLine = line
+            #print(lines[-1])
+            eventline = json.loads(mapdata.lastLine)
+            if "event" in eventline:
+                print(eventline["event"])
+                if eventline["event"] in ["CodexEntry","ScanOrganic"]:
+                    POItype = 0
+                    if eventline["event"]=="CodexEntry":
+                        sample_name = eventline['Name_Localised']
+                        POItype = 1
+                        s_n_split = sample_name.split()
+                    if eventline["event"]=="ScanOrganic":
+                        if eventline["ScanType"]=="Analyse":
+                            print("SampleAnalysed")
+                            POItype = -1
+                        else:
+                            sample_name = eventline['Species_Localised']
+                            POItype = 2
+                    if len(mapdata.refpos)>0 and POItype>0:
+                        mapdata.add_POI(sample_name,POItype=POItype)
+                if eventline["event"]=="Touchdown":
+                    mapdata.td_pos = [np.array([eventline['Latitude'],eventline['Longitude']])]
+                if eventline["event"]=="Liftoff":
+                    mapdata.td_pos = []
+                    if display.ppm>0.5:
+                        display.ppm = .05                
+                if eventline["event"]=="FSSDiscoveryScan":
+                    mapdata.add_POI("X",POItype=0)
+                if eventline["event"]=="Disembark":
+                    display.ppm = .889
+                if "Body" in eventline and len(mapdata.currentBody)==0:
+                    mapdata.currentBody = eventline["Body"]
+                if "StartJump" in eventline:
+                    mapdata.saveMapData()
 
 ###############
 def haversine_np(lon1, lat1, lon2, lat2, rad):
