@@ -33,6 +33,8 @@ ranges = {'Ale':	150,
         'Tub':	800,
         'Tus':	200}
 
+LOGCHECKED = False
+
 poicolors = [(127,127,0),
               (127,64,64),
               (64,127,64),
@@ -117,6 +119,7 @@ class mapdata:
             POItype = 0
             POIname = s_n_split[-1]
         self.POIlist.append([self.curpos,POIname[0:3],POItype])
+        print('adding to POIlist')
         if POIname != "X":
             self.add_cBsample(POIname[0:3],POItype)
     
@@ -172,11 +175,12 @@ class display:
 
         self.screen = pygame.display.set_mode((s,s))
         self.screen.fill("black")
+        self.maplimit = .85*(self.s/2)
 
     def increment_ppm(self):
-        self.ppm = np.round((10**.25)*self.ppm,3)
+        self.ppm = min(np.round((10**.2)*self.ppm,3),19.905)
     def decrement_ppm(self):
-        self.ppm = np.round(self.ppm/(10**.25),3)
+        self.ppm = np.round((10**-.2)*self.ppm,3)
 
     def drawgrid(self):
         
@@ -210,7 +214,7 @@ class display:
                 pygame.draw.line(self.screen,color=(25,20,0),start_pos=self.centpos,end_pos=(x,y))
                 self.draw_text(str(aval), self.small_font, (255,255,150),x,y)
 
-            vs = np.arange(period,self.s/2,period)
+            vs = np.arange(period,self.maplimit,period)
             rc = 0
             self.vmax = vs[-1]*self.ppm#in pixels, the outer boundary of the map
             for v in vs:#draw equidistance lines
@@ -225,7 +229,6 @@ class display:
                         mll=mll+'km'
                 pygame.draw.circle(self.screen,color=(70,50,0),center=self.centpos,radius=v,width=1)
                 self.draw_text(mll, self.text_font, (255,255,150),self.s/2,self.s/2-v)
-            
 
     def draw_text(self,text, font, text_col, x,y):
         img = font.render(text, True, text_col)
@@ -233,16 +236,18 @@ class display:
 
     def screen_pos(self,pos,mdata):
         mpos = latlong2meter(pos, mdata.refpos, mdata.radius)
-        return self.ppm*mpos + self.centpos - self.ppm*mdata.curpos_m()
+        return self.ppm*mpos - self.ppm*mdata.curpos_m()
 
     def drawpois(self,mdata):
         for pos in mdata.poslist:
             dpos = self.screen_pos(pos,mdata)
-            pygame.draw.circle(self.screen,center=dpos,radius=1,color=[127,32,64])
+            if np.abs(np.array(dpos[0] + dpos[1]*1j))<self.maplimit:#don't bother to draw the path outside the visible range
+                pygame.draw.circle(self.screen,center=dpos + self.centpos,radius=1,color=[127,32,64])
             #print(pos)
         for poslab in mdata.POIlist:
             ppos = self.screen_pos(poslab[0],mdata)#the coordinate of something scanned
             lab = poslab[1]#the name/label of something scanned
+
             if lab=="X":
                 poicolor = (127,127,0)
             else:
@@ -251,15 +256,27 @@ class display:
                 poirad = self.ppm*ranges[lab]
             else:
                 poirad = 5
-            if poslab[2]==2:
+            
+            ppos_c = np.array(ppos[0] + ppos[1]*1j)
+            ppos_d = np.abs(ppos_c)
+            if ppos_d>(self.maplimit+2*poirad):
+                #beyond the visible range, we will compress POI locations to the boundary
+                ppos_ang = np.angle(ppos_c)
+                ppos = np.array([self.maplimit*np.cos(ppos_ang),self.maplimit*np.sin(ppos_ang)]) + self.centpos
+                docircle = False
+            else:
+                ppos = ppos + self.centpos
+                docircle = True
+
+            if poslab[2]==2 and docircle:
                 pygame.draw.circle(self.screen,center=ppos,radius=poirad,color=poicolor,width=1)
             self.draw_text(lab, self.text_font, poicolor, ppos[0],ppos[1])
         for pos in mdata.td_pos:
-            tpos = self.screen_pos(pos,mdata)
+            tpos = self.screen_pos(pos,mdata) + self.centpos
             pygame.draw.circle(self.screen,center=tpos,width=1,radius=3,color=(127,127,64))
             self.draw_text('TD', self.text_font, (255,255,200), tpos[0],tpos[1])
         
-    def drawinfo(self,mdata):
+    def draw_navinfo(self,mdata):
         #body & position stuff, upper-right corner
         lat,long = mdata.curpos
         llstring =    'Lat/Long:  ' + str(np.round(lat,3)) + '/' + str(np.round(long,3))
@@ -268,6 +285,7 @@ class display:
         self.draw_text('Heading:  ' + mdata.heading, self.text_font, text_col=(250,250,150),x=10,y=38)
         self.draw_text('Distance: ' + str(round(mdata.distance)/1000) + 'km', self.text_font, text_col=(255,245,145),x=10,y=52)
 
+    def draw_sampleinfo(self,mdata):
         #collected POI info
         yv = 10
         for key in mdata.cBsamples:
@@ -275,6 +293,27 @@ class display:
             POIlabel = key + '/' + str(mdata.cBsamples[key])
             self.draw_text(POIlabel, self.text_font, text_col=poicolor,x=self.s - 60,y=yv)
             yv = yv+14
+    
+    def draw_headneedle(self,mdata):
+        selfxys = [[-5,5],
+            [0,2],
+            [5,5],
+            [0,-8]]
+        cosh = np.cos(mdata.h_rad)
+        sinh = np.sin(mdata.h_rad)
+        
+        rotxys = [(s[0]*cosh-s[1]*sinh,s[0]*sinh+s[1]*cosh) for s in selfxys]
+
+        selfsym = tuple(rotxy+self.centpos for rotxy in rotxys)
+        pygame.draw.aalines(surface=self.screen,points=selfsym,color=(255,255,200),closed=True)
+
+    # def draw_zoomscale(self):
+    #     scalepos = np.array([self.s,self.s]) + np.array([-20,-40])
+
+    #     vline = tuple(scalepos + np.array())
+
+    #     pygame.draw.line(self.screen,color=(25,20,0),start_pos=self.centpos,end_pos=(x,y))
+
 
 ##############
 def getstatus(status_file):
@@ -296,33 +335,35 @@ def get_latest_logfile(mdata):
     mdata.lastLine = None
     with open(mdata.latest_logfile,'r') as f:
         lines = f.readlines()
+        mdata.nlines = len(lines)
+        
     for line in reversed(lines):
         if mdata.lastLine==None:
             mdata.lastLine=line
 
         eventline = json.loads(line)
         if "event" in eventline:
-            if "Body" in eventline:
+            if "StarSystem" in eventline and "Body" in eventline:
                 mdata.currentBody = eventline["Body"]
         if len(mdata.currentBody)>0:
             break
 
-def checkforevent(mapdata, display):
-    with open(mapdata.latest_logfile,'r') as f:
+def checkforevent(mdata, display):
+    with open(mdata.latest_logfile,'r') as f:
         lines = f.readlines()
         nlines = len(lines)
-        ldif = min(nlines - mapdata.nlines,3)
-        mapdata.nlines = nlines
+        ldif = min(nlines - mdata.nlines,3)
+        mdata.nlines = nlines
     
     eventline = []
     for line in [lines[x] for x in list(range(-ldif,0))]:#sometimes new lines might come out faster 
                                                 #thanm the main loop would catch, 
                                                 #and we just get the last one. This is a neutered fix
                                                 #since the fix didn't work.
-        if line != mapdata.lastLine:
-            mapdata.lastLine = line
+        if line != mdata.lastLine:
+            mdata.lastLine = line
             #print(lines[-1])
-            eventline = json.loads(mapdata.lastLine)
+            eventline = json.loads(mdata.lastLine)
             if "event" in eventline:
                 print(eventline["event"])
                 if eventline["event"] in ["CodexEntry","ScanOrganic"]:
@@ -338,22 +379,22 @@ def checkforevent(mapdata, display):
                         else:
                             sample_name = eventline['Species_Localised']
                             POItype = 2
-                    if len(mapdata.refpos)>0 and POItype>0:
-                        mapdata.add_POI(sample_name,POItype=POItype)
+                    if len(mdata.refpos)>0 and POItype>0:
+                        mdata.add_POI(sample_name,POItype=POItype)
                 if eventline["event"]=="Touchdown":
-                    mapdata.td_pos = [np.array([eventline['Latitude'],eventline['Longitude']])]
+                    mdata.td_pos = [np.array([eventline['Latitude'],eventline['Longitude']])]
                 if eventline["event"]=="Liftoff":
-                    mapdata.td_pos = []
+                    mdata.td_pos = []
                     if display.ppm>0.5:
-                        display.ppm = .05                
+                        display.ppm = 10**-1.3               
                 if eventline["event"]=="FSSDiscoveryScan":
-                    mapdata.add_POI("X",POItype=0)
+                    mdata.add_POI("X",POItype=0)
                 if eventline["event"]=="Disembark":
-                    display.ppm = .889
-                if "Body" in eventline and len(mapdata.currentBody)==0:
-                    mapdata.currentBody = eventline["Body"]
+                    display.ppm = 10**-.3
+                if "Body" in eventline and len(mdata.currentBody)==0:
+                    mdata.currentBody = eventline["Body"]
                 if "StartJump" in eventline:
-                    mapdata.saveMapData()
+                    mdata.saveMapData()
 
 ###############
 def haversine_np(lon1, lat1, lon2, lat2, rad):
@@ -395,3 +436,24 @@ def latlong2meter(coord, refcoord, radius):
     ydif = np.sign(posdif[0])*chordlength(refcoord[1], refcoord[0], refcoord[1], coord[0], radius)
     dang = np.arctan2(ydif,xdif)
     return np.array([np.cos(dang)*ddif,-np.sin(dang)*(ddif)])
+
+def get_inputs(display,mdata):
+    qloop = False
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            #raise SystemExit
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            pygame.quit()
+            qloop = True
+            #raise SystemExit
+        elif event.type == pygame.MOUSEWHEEL and event.y == 1:
+            #zoom in by increasing ppm (const)
+            display.increment_ppm()
+        elif event.type == pygame.MOUSEWHEEL and event.y == -1:
+            #zoom out by decreasing ppm (const)
+            display.decrement_ppm()
+            #raise SystemExit
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button==1:
+            mdata.set_curpos(np.array(event.pos))
+    return qloop
