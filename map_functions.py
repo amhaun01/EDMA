@@ -1,7 +1,6 @@
 import pygame
 import json
 import time
-import pygame
 import numpy as np
 import os
 import glob
@@ -170,12 +169,14 @@ class display:
         self.s = s
         self.centpos = np.array([s/2,s/2])
         self.ppm = ppm#formerly const
-        self.text_font = pygame.font.SysFont("Futura", 18)
-        self.small_font = pygame.font.SysFont("Futura", 15)
+        self.text_font = pygame.font.SysFont("Eurotype", 18)
+        self.small_font = pygame.font.SysFont("Eurotype", 15)
 
         self.screen = pygame.display.set_mode((s,s))
         self.screen.fill("black")
         self.maplimit = .85*(self.s/2)
+
+        self.shift_offset = np.array([0,0])
 
     def increment_ppm(self):
         self.ppm = min(np.round((10**.2)*self.ppm,3),19.905)
@@ -234,9 +235,13 @@ class display:
         img = font.render(text, True, text_col)
         self.screen.blit(img,(x,y))
 
+    def set_shift_offset(self,clickpos):
+        #something smarter here. needs to be invariant to changes in ppd. idunno.
+        self.shift_offset = 0#np.array(clickpos) - self.centpos + self.shift_offset
+
     def screen_pos(self,pos,mdata):
         mpos = latlong2meter(pos, mdata.refpos, mdata.radius)
-        return self.ppm*mpos - self.ppm*mdata.curpos_m()
+        return self.ppm*mpos - self.ppm*mdata.curpos_m() - self.shift_offset
 
     def drawpois(self,mdata):
         for pos in mdata.poslist:
@@ -270,7 +275,9 @@ class display:
 
             if poslab[2]==2 and docircle:
                 pygame.draw.circle(self.screen,center=ppos,radius=poirad,color=poicolor,width=1)
-            self.draw_text(lab, self.text_font, poicolor, ppos[0],ppos[1])
+                self.draw_text(lab, self.text_font, poicolor, ppos[0],ppos[1])
+            else:
+                self.draw_text(lab, self.small_font, poicolor, ppos[0],ppos[1])
         for pos in mdata.td_pos:
             tpos = self.screen_pos(pos,mdata) + self.centpos
             pygame.draw.circle(self.screen,center=tpos,width=1,radius=3,color=(127,127,64))
@@ -455,5 +462,5 @@ def get_inputs(display,mdata):
             display.decrement_ppm()
             #raise SystemExit
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button==1:
-            mdata.set_curpos(np.array(event.pos))
+            display.set_shift_offset(event.pos)
     return qloop
